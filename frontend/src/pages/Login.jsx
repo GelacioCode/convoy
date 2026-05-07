@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { FaArrowLeft } from 'react-icons/fa6';
 import Button from '../components/ui/Button';
 import { supabase } from '../lib/supabase';
 import { useUserStore } from '../store/userStore';
@@ -37,8 +38,12 @@ export default function Login() {
     <div className="flex min-h-full items-center justify-center bg-slate-50 p-4 sm:p-6">
       <div className="w-full max-w-sm space-y-4 rounded-xl bg-white p-5 shadow-lg sm:p-6">
         <div>
-          <Link to="/" className="text-xs text-slate-500 hover:text-slate-700">
-            ← Back
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700"
+          >
+            <FaArrowLeft className="h-3 w-3" aria-hidden />
+            Back
           </Link>
           <h1 className="mt-1 text-xl font-semibold">Sign in</h1>
         </div>

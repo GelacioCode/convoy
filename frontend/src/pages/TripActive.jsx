@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { FaUsers, FaChevronDown, FaSun, FaMoon } from 'react-icons/fa6';
 import ConvoyMap from '../components/map/ConvoyMap';
 import ParticipantList from '../components/trip/ParticipantList';
 import ReactionBar from '../components/trip/ReactionBar';
@@ -8,6 +9,7 @@ import RerouteControls from '../components/trip/RerouteControls';
 import { useGeoLocation } from '../hooks/useGeoLocation';
 import { useTripRealtime } from '../hooks/useTripRealtime';
 import { useTripStore } from '../store/tripStore';
+import { useMapStore } from '../store/mapStore';
 import { loadIdentity } from '../store/userStore';
 import { api } from '../lib/api';
 import { supabase } from '../lib/supabase';
@@ -37,6 +39,9 @@ export default function TripActive() {
 
   const [error, setError] = useState(null);
   const [rerouting, setRerouting] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const mapStyle = useMapStore((s) => s.mapStyle);
+  const setMapStyle = useMapStore((s) => s.setMapStyle);
   const { position, error: gpsError } = useGeoLocation();
   const positionRef = useRef(position);
   positionRef.current = position;
@@ -327,20 +332,51 @@ export default function TripActive() {
         myParticipantId={myParticipantId}
         followParticipantId={myParticipantId}
       />
-      <div className="absolute right-2 top-2 z-10 w-[calc(100%-1rem)] max-w-xs space-y-2 sm:right-4 sm:top-4 sm:w-72 sm:max-w-none">
-        <ParticipantList
-          participants={participants}
-          myParticipantId={myParticipantId}
-          destination={destination}
-          transportMode={trip.transport_mode}
-        />
-        <RerouteControls
-          rerouted={Boolean(personalReroute)}
-          loading={rerouting}
-          onReroute={handleManualReroute}
-          onUseMain={handleUseMain}
-        />
+      <div className="absolute right-2 top-2 z-10 flex w-[calc(100%-1rem)] max-w-xs flex-col items-end gap-2 sm:right-4 sm:top-4 sm:w-72 sm:max-w-none">
+        {panelCollapsed ? (
+          <button
+            type="button"
+            onClick={() => setPanelCollapsed(false)}
+            className="flex items-center gap-2 rounded-full bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-lg ring-1 ring-slate-200 transition hover:bg-slate-50"
+            aria-label="Expand riders panel"
+          >
+            <FaUsers className="h-4 w-4 text-slate-500" aria-hidden />
+            <span>
+              {participants.length} {participants.length === 1 ? 'rider' : 'riders'}
+            </span>
+            <FaChevronDown className="h-3 w-3 text-slate-500" aria-hidden />
+          </button>
+        ) : (
+          <>
+            <ParticipantList
+              participants={participants}
+              myParticipantId={myParticipantId}
+              destination={destination}
+              transportMode={trip.transport_mode}
+              onCollapse={() => setPanelCollapsed(true)}
+            />
+            <RerouteControls
+              rerouted={Boolean(personalReroute)}
+              loading={rerouting}
+              onReroute={handleManualReroute}
+              onUseMain={handleUseMain}
+            />
+          </>
+        )}
       </div>
+
+      <button
+        type="button"
+        onClick={() => setMapStyle(mapStyle === 'dark' ? 'light' : 'dark')}
+        aria-label={`Switch to ${mapStyle === 'dark' ? 'light' : 'dark'} map`}
+        className="absolute left-2 top-2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-lg ring-1 ring-slate-200 transition hover:bg-slate-50 active:scale-95 sm:left-4 sm:top-4"
+      >
+        {mapStyle === 'dark' ? (
+          <FaSun className="h-5 w-5 text-amber-500" aria-hidden />
+        ) : (
+          <FaMoon className="h-5 w-5 text-slate-700" aria-hidden />
+        )}
+      </button>
       <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2">
         <ReactionBar tripId={trip.id} participantId={myParticipantId} />
       </div>

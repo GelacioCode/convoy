@@ -1,3 +1,5 @@
+import { FaArrowsRotate } from 'react-icons/fa6';
+
 export default function RerouteControls({ rerouted, loading, onReroute, onUseMain }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -11,7 +13,7 @@ export default function RerouteControls({ rerouted, loading, onReroute, onUseMai
           'Calculating route…'
         ) : (
           <>
-            <span aria-hidden>🔄</span>
+            <FaArrowsRotate className="h-3.5 w-3.5" aria-hidden />
             <span>{rerouted ? 'Reroute again' : 'Reroute from here'}</span>
           </>
         )}

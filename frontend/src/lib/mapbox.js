@@ -12,4 +12,9 @@ export const DEFAULT_VIEWPORT = {
   zoom: 12,
 };
 
-export const MAP_STYLE = 'mapbox://styles/mapbox/streets-v12';
+export const MAP_STYLES = {
+  light: 'mapbox://styles/mapbox/streets-v12',
+  dark: 'mapbox://styles/mapbox/dark-v11',
+};
+
+export const MAP_STYLE = MAP_STYLES.light;

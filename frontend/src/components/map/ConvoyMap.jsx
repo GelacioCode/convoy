@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { mapboxgl, MAP_STYLE, DEFAULT_VIEWPORT } from '../../lib/mapbox';
+import { mapboxgl, MAP_STYLES, DEFAULT_VIEWPORT } from '../../lib/mapbox';
 import { useMapStore } from '../../store/mapStore';
 import { createParticipantMarker } from './ParticipantMarker';
 
@@ -41,13 +41,15 @@ export default function ConvoyMap({
   const trailLayersRef = useRef(new Map());
   const mapInstance = useMapStore((s) => s.mapInstance);
   const setMapInstance = useMapStore((s) => s.setMapInstance);
+  const mapStyle = useMapStore((s) => s.mapStyle);
   const [followPaused, setFollowPaused] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return undefined;
+    const styleUrl = MAP_STYLES[mapStyle] ?? MAP_STYLES.light;
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: MAP_STYLE,
+      style: styleUrl,
       center: [DEFAULT_VIEWPORT.lng, DEFAULT_VIEWPORT.lat],
       zoom: DEFAULT_VIEWPORT.zoom,
     });
@@ -57,10 +59,29 @@ export default function ConvoyMap({
     );
     setMapInstance(map);
     return () => {
+      // Markers and layer state are tied to this specific map instance — clear
+      // every ref so the next map (e.g. after a style swap) starts fresh.
+      if (userMarkerRef.current) {
+        userMarkerRef.current.remove();
+        userMarkerRef.current = null;
+      }
+      if (destMarkerRef.current) {
+        destMarkerRef.current.remove();
+        destMarkerRef.current = null;
+      }
+      for (const { marker } of participantMarkersRef.current.values()) {
+        marker.remove();
+      }
+      participantMarkersRef.current.clear();
+      altLayersRef.current = [];
+      trailLayersRef.current.clear();
+      hasFitUserRef.current = false;
+      hasFollowFitRef.current = false;
+      lastFollowPosRef.current = null;
       map.remove();
       setMapInstance(null);
     };
-  }, [setMapInstance]);
+  }, [mapStyle, setMapInstance]);
 
   useEffect(() => {
     if (!mapInstance || !userPosition) return;

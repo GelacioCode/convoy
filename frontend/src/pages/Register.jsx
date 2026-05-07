@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { FaArrowLeft, FaEnvelopeOpen } from 'react-icons/fa6';
 import Button from '../components/ui/Button';
 import ColorPicker from '../components/ui/ColorPicker';
 import { supabase } from '../lib/supabase';
@@ -59,7 +60,7 @@ export default function Register() {
     return (
       <div className="flex min-h-full items-center justify-center bg-slate-50 p-4 sm:p-6">
         <div className="w-full max-w-sm space-y-3 rounded-xl bg-white p-6 shadow-lg text-center">
-          <div className="text-3xl">📬</div>
+          <FaEnvelopeOpen className="mx-auto h-10 w-10 text-blue-600" aria-hidden />
           <h1 className="text-xl font-semibold">Check your email</h1>
           <p className="text-sm text-slate-600">
             We sent a confirmation link to <span className="font-medium">{email}</span>.
@@ -80,8 +81,12 @@ export default function Register() {
     <div className="flex min-h-full items-center justify-center bg-slate-50 p-4 sm:p-6">
       <div className="w-full max-w-sm space-y-4 rounded-xl bg-white p-5 shadow-lg sm:p-6">
         <div>
-          <Link to="/" className="text-xs text-slate-500 hover:text-slate-700">
-            ← Back
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700"
+          >
+            <FaArrowLeft className="h-3 w-3" aria-hidden />
+            Back
           </Link>
           <h1 className="mt-1 text-xl font-semibold">Create an account</h1>
         </div>

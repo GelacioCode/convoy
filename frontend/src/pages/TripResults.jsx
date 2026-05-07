@@ -1,11 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { FaTrophy, FaCar } from 'react-icons/fa6';
 import Avatar from '../components/ui/Avatar';
 import Button from '../components/ui/Button';
 import ReplayPlayer from '../components/results/ReplayPlayer';
 import { api } from '../lib/api';
 import { formatDuration, formatDistance } from '../utils/formatters';
 import { useUserStore } from '../store/userStore';
+
+const PODIUM_COLOR = {
+  1: 'text-amber-400', // gold
+  2: 'text-slate-400', // silver
+  3: 'text-orange-400', // bronze
+};
 
 export default function TripResults() {
   const { shareToken } = useParams();
@@ -138,7 +145,10 @@ export default function TripResults() {
 
         {isGuest && (
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-            <p className="font-semibold">🚗 Nice convoy!</p>
+            <p className="flex items-center gap-2 font-semibold">
+              <FaCar className="h-4 w-4" aria-hidden />
+              Nice convoy!
+            </p>
             <p className="mt-1">
               You're a guest right now. Account features (saved trip history,
               dashboard, faster joins) are coming in the next release.
@@ -158,10 +168,9 @@ export default function TripResults() {
 
 function PodiumSlot({ rider, rank, barHeight }) {
   if (!rider) return <div />;
-  const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉';
   return (
     <div className="flex flex-col items-center text-center">
-      <div className="text-3xl">{medal}</div>
+      <FaTrophy className={`h-7 w-7 ${PODIUM_COLOR[rank] ?? 'text-slate-400'}`} aria-hidden />
       <Avatar name={rider.display_name} color={rider.color} size={48} />
       <div className="mt-1 max-w-full truncate text-sm font-semibold">
         {rider.display_name}

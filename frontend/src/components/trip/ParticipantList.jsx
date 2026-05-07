@@ -1,3 +1,4 @@
+import { FaChevronUp } from 'react-icons/fa6';
 import Avatar from '../ui/Avatar';
 import { distanceMeters } from '../../utils/geo';
 import { estimateETA } from '../../utils/eta';
@@ -40,6 +41,7 @@ export default function ParticipantList({
   myParticipantId,
   destination,
   transportMode = 'driving',
+  onCollapse,
 }) {
   const modeAvg = MODE_AVG_SPEED_KMH[transportMode] ?? 30;
   const sorted = [...participants].sort((a, b) => {
@@ -55,9 +57,21 @@ export default function ParticipantList({
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-        Riders ({participants.length})
-      </p>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Riders ({participants.length})
+        </p>
+        {onCollapse && (
+          <button
+            type="button"
+            onClick={onCollapse}
+            aria-label="Collapse riders panel"
+            className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
+          >
+            <FaChevronUp className="h-3 w-3" aria-hidden />
+          </button>
+        )}
+      </div>
       <ul className="max-h-[40vh] space-y-2 overflow-y-auto">
         {sorted.map((p) => {
           const dist =
