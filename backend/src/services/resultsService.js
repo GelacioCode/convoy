@@ -72,6 +72,20 @@ export async function getResults(tripId) {
   const plannedDistanceM = trip.route_data?.distance ?? null;
   const startedAt = trip.started_at ? new Date(trip.started_at).getTime() : null;
 
+  // Re-derive ranks from `finished_at` ASC order. The stored `finish_rank`
+  // can drift out of sync because the original count+1 update isn't atomic
+  // (concurrent finishes can read stale counts), and stale rows from prior
+  // tests can throw the count off too. Computing here at read time keeps the
+  // results screen consistent regardless of what's in the column.
+  const finishedSorted = (participants ?? [])
+    .filter((p) => p.finished_at)
+    .sort(
+      (a, b) =>
+        new Date(a.finished_at).getTime() - new Date(b.finished_at).getTime()
+    );
+  const derivedRank = new Map();
+  finishedSorted.forEach((p, i) => derivedRank.set(p.id, i + 1));
+
   const enriched = (participants ?? []).map((p) => {
     const myLogs = logsByParticipant.get(p.id) ?? [];
     const { maxSpeed, distance: rawActualM } = aggregateLogs(myLogs);
@@ -87,8 +101,11 @@ export async function getResults(tripId) {
         ? distanceForAvg / 1000 / (totalTimeMs / 3_600_000)
         : null;
 
+    const rank = derivedRank.get(p.id) ?? null;
+
     return {
       ...p,
+      finish_rank: rank,
       total_time_ms: totalTimeMs,
       planned_distance_m: plannedDistanceM,
       actual_distance_m: actualDistanceM,

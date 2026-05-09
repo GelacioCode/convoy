@@ -1,4 +1,4 @@
-import { FaChevronUp } from 'react-icons/fa6';
+import { FaChevronUp, FaRightFromBracket } from 'react-icons/fa6';
 import Avatar from '../ui/Avatar';
 import { distanceMeters } from '../../utils/geo';
 import { estimateETA } from '../../utils/eta';
@@ -42,6 +42,8 @@ export default function ParticipantList({
   destination,
   transportMode = 'driving',
   onCollapse,
+  onLeave,
+  isHost = false,
 }) {
   const modeAvg = MODE_AVG_SPEED_KMH[transportMode] ?? 30;
   const sorted = [...participants].sort((a, b) => {
@@ -118,6 +120,16 @@ export default function ParticipantList({
           );
         })}
       </ul>
+      {onLeave && (
+        <button
+          type="button"
+          onClick={onLeave}
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+        >
+          <FaRightFromBracket className="h-3 w-3" aria-hidden />
+          {isHost ? 'End trip for everyone' : 'Leave trip'}
+        </button>
+      )}
     </div>
   );
 }

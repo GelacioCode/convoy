@@ -4,19 +4,30 @@ import { useGeocoder } from '../../hooks/useGeocoder';
 export default function SearchBar({ onSelect }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const { results, loading, error } = useGeocoder(query);
+  const [resolving, setResolving] = useState(false);
+  const [resolveError, setResolveError] = useState(null);
+  const { results, loading, error, retrieve } = useGeocoder(query);
 
-  const handleSelect = (place) => {
-    setQuery(place.placeName);
+  const handleSelect = async (suggestion) => {
+    setQuery(suggestion.placeName);
     setOpen(false);
-    onSelect?.(place);
+    setResolving(true);
+    setResolveError(null);
+    try {
+      const place = await retrieve(suggestion.id);
+      onSelect?.(place);
+    } catch (err) {
+      setResolveError(err.message);
+    } finally {
+      setResolving(false);
+    }
   };
 
   return (
     <div className="relative">
       <input
         type="search"
-        placeholder="Where to?"
+        placeholder="Where to? (places, shops, addresses)"
         value={query}
         onChange={(e) => {
           setQuery(e.target.value);
@@ -34,22 +45,32 @@ export default function SearchBar({ onSelect }) {
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => handleSelect(r)}
-                className="w-full px-4 py-2 text-left text-sm hover:bg-slate-100"
+                className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-100"
               >
-                {r.placeName}
+                <div className="font-medium text-slate-900">{r.placeName}</div>
+                {r.address && r.address !== r.placeName && (
+                  <div className="truncate text-xs text-slate-500">
+                    {r.address}
+                  </div>
+                )}
               </button>
             </li>
           ))}
         </ul>
       )}
-      {open && loading && results.length === 0 && (
+      {open && (loading || resolving) && results.length === 0 && (
         <div className="absolute z-10 mt-1 w-full rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500 shadow-lg">
-          Searching…
+          {resolving ? 'Resolving location…' : 'Searching…'}
         </div>
       )}
       {error && (
         <div className="absolute z-10 mt-1 w-full rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 shadow-lg">
           Search failed: {error.message}
+        </div>
+      )}
+      {resolveError && (
+        <div className="absolute z-10 mt-1 w-full rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 shadow-lg">
+          Couldn't load that place: {resolveError}
         </div>
       )}
     </div>

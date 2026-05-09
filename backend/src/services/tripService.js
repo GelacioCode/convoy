@@ -70,6 +70,31 @@ export async function getTripByShareToken(shareToken) {
   return data;
 }
 
+export async function deleteTrip(tripId, userId) {
+  const sb = getSupabase();
+
+  const { data: trip, error: lookupErr } = await sb
+    .from('trips')
+    .select('id, host_id')
+    .eq('id', tripId)
+    .maybeSingle();
+  if (lookupErr) throw fail(lookupErr.message, 500, 'trip_lookup_failed');
+  if (!trip) throw fail('trip_not_found', 404, 'trip_not_found');
+
+  // Only the host can delete. host_id may be null for guest-created trips —
+  // those can't be deleted via this endpoint (would need a guest-token check).
+  if (!trip.host_id) {
+    throw fail('guest_trip_cannot_delete', 403, 'guest_trip_cannot_delete');
+  }
+  if (trip.host_id !== userId) {
+    throw fail('not_host', 403, 'not_host');
+  }
+
+  const { error: deleteErr } = await sb.from('trips').delete().eq('id', tripId);
+  if (deleteErr) throw fail(deleteErr.message, 500, 'trip_delete_failed');
+  return { id: tripId };
+}
+
 export async function setTripStatus(tripId, status) {
   const patch = { status };
   if (status === 'active') patch.started_at = new Date().toISOString();

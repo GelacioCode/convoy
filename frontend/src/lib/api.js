@@ -34,6 +34,8 @@ export const api = {
     request(`/api/trips/${tripId}/join`, { method: 'POST', body: payload }),
   setStatus: (tripId, status) =>
     request(`/api/trips/${tripId}/status`, { method: 'PATCH', body: { status } }),
+  deleteTrip: (tripId) =>
+    request(`/api/trips/${tripId}`, { method: 'DELETE' }),
   finishParticipant: (participantId) =>
     request(`/api/participants/${participantId}/finish`, { method: 'PATCH' }),
   getResults: (tripId) => request(`/api/trips/${tripId}/results`),

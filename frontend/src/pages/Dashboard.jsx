@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { FaXmark, FaTrash, FaArrowRight } from 'react-icons/fa6';
 import Avatar from '../components/ui/Avatar';
 import Button from '../components/ui/Button';
 import { api } from '../lib/api';
@@ -25,6 +26,8 @@ export default function Dashboard() {
   const profile = useUserStore((s) => s.profile);
   const [trips, setTrips] = useState(null);
   const [error, setError] = useState(null);
+  const [busyTripId, setBusyTripId] = useState(null);
+  const [confirm, setConfirm] = useState(null);
 
   useEffect(() => {
     if (session === null) {
@@ -57,6 +60,39 @@ export default function Dashboard() {
     if (t.status === 'finished') return `/trip/${t.share_token}/results`;
     if (t.status === 'active') return `/trip/${t.share_token}/active`;
     return `/trip/${t.share_token}/lobby`;
+  };
+
+  const refresh = async () => {
+    const { trips: t } = await api.getMyTrips();
+    setTrips(t);
+  };
+
+  const handleCancelTrip = async (trip) => {
+    setBusyTripId(trip.id);
+    setError(null);
+    try {
+      await api.setStatus(trip.id, 'finished');
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyTripId(null);
+      setConfirm(null);
+    }
+  };
+
+  const handleDeleteTrip = async (trip) => {
+    setBusyTripId(trip.id);
+    setError(null);
+    try {
+      await api.deleteTrip(trip.id);
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyTripId(null);
+      setConfirm(null);
+    }
   };
 
   return (
@@ -111,46 +147,117 @@ export default function Dashboard() {
           )}
           {trips && trips.length > 0 && (
             <ul className="divide-y divide-slate-100">
-              {trips.map((t) => (
-                <li key={t.id}>
-                  <Link
-                    to={tripPath(t)}
-                    className="flex items-center gap-3 py-3 hover:bg-slate-50"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate font-medium">
-                          {t.destination_name}
-                        </span>
-                        <span
-                          className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                            STATUS_CLASS[t.status] ?? 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {STATUS_LABEL[t.status] ?? t.status}
-                        </span>
+              {trips.map((t) => {
+                const isHosted = t.myRole === 'host';
+                const isLive = t.status === 'lobby' || t.status === 'active';
+                const busy = busyTripId === t.id;
+                return (
+                  <li key={t.id} className="flex items-center gap-2 py-3">
+                    <Link
+                      to={tripPath(t)}
+                      className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-1 hover:bg-slate-50"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate font-medium">
+                            {t.destination_name}
+                          </span>
+                          <span
+                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                              STATUS_CLASS[t.status] ?? 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {STATUS_LABEL[t.status] ?? t.status}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
+                          <span>
+                            {new Date(t.created_at).toLocaleDateString()} ·{' '}
+                            {isHosted ? 'Hosted' : 'Joined'}
+                          </span>
+                          {t.route_data?.distance != null && (
+                            <span>{formatDistance(t.route_data.distance)}</span>
+                          )}
+                          {t.myFinishRank != null && (
+                            <span>Finished #{t.myFinishRank}</span>
+                          )}
+                        </div>
                       </div>
-                      <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
-                        <span>
-                          {new Date(t.created_at).toLocaleDateString()} ·{' '}
-                          {t.myRole === 'host' ? 'Hosted' : 'Joined'}
-                        </span>
-                        {t.route_data?.distance != null && (
-                          <span>{formatDistance(t.route_data.distance)}</span>
-                        )}
-                        {t.myFinishRank != null && (
-                          <span>Finished #{t.myFinishRank}</span>
-                        )}
-                      </div>
-                    </div>
-                    <span className="text-slate-400">→</span>
-                  </Link>
-                </li>
-              ))}
+                      <FaArrowRight className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+                    </Link>
+                    {isHosted && isLive && (
+                      <button
+                        type="button"
+                        onClick={() => setConfirm({ kind: 'cancel', trip: t })}
+                        disabled={busy}
+                        title="Cancel trip"
+                        aria-label="Cancel trip"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-amber-700 hover:bg-amber-50 disabled:cursor-wait disabled:opacity-50"
+                      >
+                        <FaXmark className="h-4 w-4" aria-hidden />
+                      </button>
+                    )}
+                    {isHosted && (
+                      <button
+                        type="button"
+                        onClick={() => setConfirm({ kind: 'delete', trip: t })}
+                        disabled={busy}
+                        title="Delete trip"
+                        aria-label="Delete trip"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-red-600 hover:bg-red-50 disabled:cursor-wait disabled:opacity-50"
+                      >
+                        <FaTrash className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
       </div>
+
+      {confirm && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm space-y-3 rounded-xl bg-white p-5 shadow-xl">
+            <h2 className="text-lg font-semibold">
+              {confirm.kind === 'cancel'
+                ? `Cancel "${confirm.trip.destination_name}"?`
+                : `Delete "${confirm.trip.destination_name}"?`}
+            </h2>
+            <p className="text-sm text-slate-600">
+              {confirm.kind === 'cancel'
+                ? 'This marks the trip as finished for everyone. Riders currently in the trip will be sent to the results screen.'
+                : 'This permanently deletes the trip and all its participants, position logs, and reactions. This cannot be undone.'}
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirm(null)}
+                className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-100"
+              >
+                Keep it
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  confirm.kind === 'cancel'
+                    ? handleCancelTrip(confirm.trip)
+                    : handleDeleteTrip(confirm.trip)
+                }
+                disabled={busyTripId === confirm.trip.id}
+                className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${
+                  confirm.kind === 'cancel'
+                    ? 'bg-amber-600 hover:bg-amber-700'
+                    : 'bg-red-600 hover:bg-red-700'
+                }`}
+              >
+                {confirm.kind === 'cancel' ? 'Cancel trip' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

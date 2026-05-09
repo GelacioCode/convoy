@@ -1,25 +1,40 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FaUsers, FaChevronDown, FaSun, FaMoon } from 'react-icons/fa6';
+import {
+  FaUsers,
+  FaChevronDown,
+  FaSun,
+  FaMoon,
+  FaArrowsRotate,
+  FaArrowRotateLeft,
+  FaRightFromBracket,
+} from 'react-icons/fa6';
 import ConvoyMap from '../components/map/ConvoyMap';
 import ParticipantList from '../components/trip/ParticipantList';
 import ReactionBar from '../components/trip/ReactionBar';
 import ReactionToasts from '../components/trip/ReactionToasts';
-import RerouteControls from '../components/trip/RerouteControls';
 import { useGeoLocation } from '../hooks/useGeoLocation';
 import { useTripRealtime } from '../hooks/useTripRealtime';
 import { useTripStore } from '../store/tripStore';
 import { useMapStore } from '../store/mapStore';
-import { loadIdentity } from '../store/userStore';
+import { loadIdentity, clearIdentity } from '../store/userStore';
 import { api } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { fetchDirections } from '../lib/directions';
-import { isWithinRadius, snappedDistanceToRoute } from '../utils/geo';
+import {
+  isWithinRadius,
+  snappedDistanceToRoute,
+  progressAlongRoute,
+} from '../utils/geo';
 import {
   ARRIVAL_RADIUS_METERS,
   POSITION_UPDATE_INTERVAL_MS,
   POSITION_LOG_INTERVAL_MS,
 } from '../lib/constants';
+
+const OFF_ROUTE_DISTANCE_M = 60;
+const OFF_ROUTE_TICKS_BEFORE_REROUTE = 2;
+const AUTO_REROUTE_COOLDOWN_MS = 15_000;
 
 export default function TripActive() {
   const { shareToken } = useParams();
@@ -40,6 +55,7 @@ export default function TripActive() {
   const [error, setError] = useState(null);
   const [rerouting, setRerouting] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [confirmExit, setConfirmExit] = useState(false);
   const mapStyle = useMapStore((s) => s.mapStyle);
   const setMapStyle = useMapStore((s) => s.setMapStyle);
   const { position, error: gpsError } = useGeoLocation();
@@ -98,11 +114,6 @@ export default function TripActive() {
 
   useTripRealtime(trip?.id);
 
-  // Write my own GPS into the local store immediately — no Realtime roundtrip
-  // for myself, so my marker renders the moment GPS resolves. We do NOT filter
-  // by accuracy here: desktop browsers triangulate via Wi-Fi/IP and routinely
-  // report accuracy in the hundreds of meters, which would otherwise hide the
-  // user from their own map for the entire trip.
   useEffect(() => {
     if (!myParticipantId || !position) return;
     updateParticipantPosition(myParticipantId, {
@@ -114,15 +125,11 @@ export default function TripActive() {
     });
   }, [position, myParticipantId, updateParticipantPosition]);
 
-  // Broadcast my GPS to position_updates every 3s.
   useEffect(() => {
     if (!trip || trip.status !== 'active' || !myParticipantId) return undefined;
-
     const tick = async () => {
       const p = positionRef.current;
       if (!p) return;
-      // Loose threshold: desktop testing reports >100m routinely. Production
-      // can tighten this back toward 50m once we're on real mobile hardware.
       if (p.accuracy && p.accuracy > 500) return;
       const { error: upsertErr } = await supabase
         .from('position_updates')
@@ -137,16 +144,13 @@ export default function TripActive() {
         });
       if (upsertErr) console.warn('[convoy] position upsert failed', upsertErr);
     };
-
     tick();
     const interval = setInterval(tick, POSITION_UPDATE_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [trip, myParticipantId]);
 
-  // Append a row to position_logs every 5s for replay/stats.
   useEffect(() => {
     if (!trip || trip.status !== 'active' || !myParticipantId) return undefined;
-
     const log = async () => {
       const p = positionRef.current;
       if (!p) return;
@@ -160,17 +164,14 @@ export default function TripActive() {
       });
       if (insertErr) console.warn('[convoy] position log failed', insertErr);
     };
-
     log();
     const interval = setInterval(log, POSITION_LOG_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [trip, myParticipantId]);
 
-  // Off-route detection runs against the *active* route (personal reroute if
-  // one is set, else the trip's main route). After 3 consecutive fixes >100m
-  // away we either auto-reroute (if the cooldown has elapsed) or fall back to
-  // a plain warning toast. The cooldown protects against thrashing under GPS
-  // jitter or zig-zagging.
+  // Off-route detection — tighter thresholds now (2 ticks > 60m, 15s cooldown)
+  // so the auto-reroute kicks in within a few seconds of an actual wrong turn
+  // instead of waiting for the user to drift well off course.
   useEffect(() => {
     if (!trip || !position) return;
     const activeRoute = personalReroute ?? trip.route_data;
@@ -182,13 +183,19 @@ export default function TripActive() {
     );
     if (dist == null) return;
 
-    if (dist > 100) {
+    if (dist > OFF_ROUTE_DISTANCE_M) {
       offRouteCountRef.current += 1;
-      if (offRouteCountRef.current < 3 || offRouteShownRef.current) return;
+      if (
+        offRouteCountRef.current < OFF_ROUTE_TICKS_BEFORE_REROUTE ||
+        offRouteShownRef.current
+      ) {
+        return;
+      }
       offRouteShownRef.current = true;
 
       const now = Date.now();
-      const cooldownElapsed = now - lastAutoRerouteAtRef.current >= 30_000;
+      const cooldownElapsed =
+        now - lastAutoRerouteAtRef.current >= AUTO_REROUTE_COOLDOWN_MS;
 
       if (cooldownElapsed) {
         lastAutoRerouteAtRef.current = now;
@@ -287,7 +294,9 @@ export default function TripActive() {
     const me = participants.find((p) => p.id === myParticipantId);
     if (!me || me.finished_at) return;
     const dest = { lat: trip.destination_lat, lng: trip.destination_lng };
-    if (isWithinRadius({ lat: position.lat, lng: position.lng }, dest, ARRIVAL_RADIUS_METERS)) {
+    if (
+      isWithinRadius({ lat: position.lat, lng: position.lng }, dest, ARRIVAL_RADIUS_METERS)
+    ) {
       api.finishParticipant(myParticipantId).catch((err) => {
         console.warn('[convoy] finish failed', err);
       });
@@ -304,6 +313,39 @@ export default function TripActive() {
     }
   }, [trip, participants, navigate, shareToken]);
 
+  const me = participants.find((p) => p.id === myParticipantId);
+  const isHost = Boolean(me?.is_host);
+
+  const handleConfirmExit = async () => {
+    if (!trip) return;
+    if (isHost) {
+      try {
+        await api.setStatus(trip.id, 'finished');
+      } catch (err) {
+        console.warn('[convoy] end trip failed', err);
+      }
+      // Host stays in localStorage for results view.
+      navigate(`/trip/${shareToken}/results`, { replace: true });
+    } else {
+      // Guest: drop our identity for this trip and bounce home. Their position
+      // logs and finish state remain on the server for the results screen.
+      clearIdentity(trip.id);
+      navigate('/', { replace: true });
+    }
+  };
+
+  // Past-route trim progress (0..1) — feeds the line-gradient in ConvoyMap so
+  // the road behind you fades out, like Google Maps navigation.
+  const activeCoords = (personalReroute ?? trip?.route_data)?.geometry?.coordinates;
+  const routeProgress = useMemo(() => {
+    if (!activeCoords || !position) return null;
+    const { progress } = progressAlongRoute(
+      { lat: position.lat, lng: position.lng },
+      activeCoords
+    );
+    return progress;
+  }, [activeCoords, position]);
+
   if (error) {
     return (
       <div className="flex h-full items-center justify-center p-6">
@@ -316,9 +358,6 @@ export default function TripActive() {
   if (!trip) return <div className="p-6 text-slate-500">Loading trip…</div>;
 
   const destination = { lat: trip.destination_lat, lng: trip.destination_lng };
-  // When a personal reroute is in effect we show it as the bright primary
-  // route and demote the trip's main route to a muted gray "alternate", so
-  // the user can still see where the rest of the convoy is heading.
   const displayRoute = personalReroute ?? route;
   const displayAlts = personalReroute && route ? [route] : [];
 
@@ -331,7 +370,10 @@ export default function TripActive() {
         participants={participants}
         myParticipantId={myParticipantId}
         followParticipantId={myParticipantId}
+        routeProgress={routeProgress}
       />
+
+      {/* Right-side: collapsible riders panel */}
       <div className="absolute right-2 top-2 z-10 flex w-[calc(100%-1rem)] max-w-xs flex-col items-end gap-2 sm:right-4 sm:top-4 sm:w-72 sm:max-w-none">
         {panelCollapsed ? (
           <button
@@ -347,24 +389,19 @@ export default function TripActive() {
             <FaChevronDown className="h-3 w-3 text-slate-500" aria-hidden />
           </button>
         ) : (
-          <>
-            <ParticipantList
-              participants={participants}
-              myParticipantId={myParticipantId}
-              destination={destination}
-              transportMode={trip.transport_mode}
-              onCollapse={() => setPanelCollapsed(true)}
-            />
-            <RerouteControls
-              rerouted={Boolean(personalReroute)}
-              loading={rerouting}
-              onReroute={handleManualReroute}
-              onUseMain={handleUseMain}
-            />
-          </>
+          <ParticipantList
+            participants={participants}
+            myParticipantId={myParticipantId}
+            destination={destination}
+            transportMode={trip.transport_mode}
+            onCollapse={() => setPanelCollapsed(true)}
+            onLeave={() => setConfirmExit(true)}
+            isHost={isHost}
+          />
         )}
       </div>
 
+      {/* Top-left: theme toggle */}
       <button
         type="button"
         onClick={() => setMapStyle(mapStyle === 'dark' ? 'light' : 'dark')}
@@ -377,6 +414,44 @@ export default function TripActive() {
           <FaMoon className="h-5 w-5 text-slate-700" aria-hidden />
         )}
       </button>
+
+      {/* Bottom-left: reroute stack — sits ABOVE the recenter button (which
+          ConvoyMap renders at bottom-20 left-4 when follow is paused). */}
+      <div className="absolute bottom-36 left-4 z-10 flex flex-col gap-2">
+        {personalReroute && (
+          <button
+            type="button"
+            onClick={handleUseMain}
+            aria-label="Switch back to main route"
+            title="Switch back to main route"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-white shadow-xl ring-1 ring-slate-200 transition hover:bg-slate-50 active:scale-95"
+          >
+            <FaArrowRotateLeft className="h-4 w-4 text-slate-600" aria-hidden />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={handleManualReroute}
+          disabled={rerouting}
+          aria-label={
+            personalReroute
+              ? 'Recompute personal route from here'
+              : 'Reroute from here'
+          }
+          title={
+            personalReroute
+              ? 'Recompute personal route from here'
+              : 'Reroute from here'
+          }
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-white shadow-xl ring-1 ring-slate-200 transition hover:bg-slate-50 active:scale-95 disabled:cursor-wait disabled:opacity-60"
+        >
+          <FaArrowsRotate
+            className={`h-5 w-5 text-blue-600 ${rerouting ? 'animate-spin' : ''}`}
+            aria-hidden
+          />
+        </button>
+      </div>
+
       <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2">
         <ReactionBar tripId={trip.id} participantId={myParticipantId} />
       </div>
@@ -389,6 +464,40 @@ export default function TripActive() {
       {!gpsError && position?.accuracy != null && position.accuracy > 50 && (
         <div className="absolute bottom-20 left-1/2 z-10 -translate-x-1/2 rounded-lg bg-amber-50 px-3 py-1 text-xs text-amber-700 shadow">
           Weak GPS · ±{Math.round(position.accuracy)} m
+        </div>
+      )}
+
+      {confirmExit && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm space-y-4 rounded-xl bg-white p-5 shadow-xl">
+            <div className="flex items-center gap-2">
+              <FaRightFromBracket className="h-5 w-5 text-slate-700" aria-hidden />
+              <h2 className="text-lg font-semibold">
+                {isHost ? 'End trip for everyone?' : 'Leave trip?'}
+              </h2>
+            </div>
+            <p className="text-sm text-slate-600">
+              {isHost
+                ? 'This finishes the convoy for all riders and sends everyone to the results screen.'
+                : 'You will leave this convoy. Other riders will continue without you.'}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmExit(false)}
+                className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmExit}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              >
+                {isHost ? 'End trip' : 'Leave'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

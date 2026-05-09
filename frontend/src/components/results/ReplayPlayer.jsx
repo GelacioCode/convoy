@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { FaPlay, FaPause, FaRoute } from 'react-icons/fa6';
 import ConvoyMap from '../map/ConvoyMap';
 import { api } from '../../lib/api';
 import { calculateBearing } from '../../utils/geo';
 import { formatDuration } from '../../utils/formatters';
 
-const TICK_MS = 50;
-const SPEED_OPTIONS = [1, 2, 4, 8, 16];
+const ANIMATION_DURATION_MS = 15_000;
 
 function tsMs(iso) {
   return new Date(iso).getTime();
@@ -52,9 +52,9 @@ function interpolate(logs, targetMs) {
 export default function ReplayPlayer({ tripId }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [currentMs, setCurrentMs] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(4);
+  const [animMs, setAnimMs] = useState(0); // 0..ANIMATION_DURATION_MS
+  const [playing, setPlaying] = useState(true);
+  const [showMainRoute, setShowMainRoute] = useState(true);
   const lastFrameRef = useRef(null);
 
   useEffect(() => {
@@ -72,8 +72,8 @@ export default function ReplayPlayer({ tripId }) {
     };
   }, [tripId]);
 
-  const { startMs, endMs, durationMs } = useMemo(() => {
-    if (!data) return { startMs: 0, endMs: 0, durationMs: 0 };
+  const { startMs, endMs, tripDurationMs } = useMemo(() => {
+    if (!data) return { startMs: 0, endMs: 0, tripDurationMs: 0 };
     const start = data.trip.started_at
       ? tsMs(data.trip.started_at)
       : data.tracks.length
@@ -87,24 +87,24 @@ export default function ReplayPlayer({ tripId }) {
     return {
       startMs: start,
       endMs: end,
-      durationMs: Math.max(end - start, 1000),
+      tripDurationMs: Math.max(end - start, 1000),
     };
   }, [data]);
 
-  // Auto-advance using requestAnimationFrame so playback stays smooth even
-  // when the tab is frontmost (setInterval drifts under load).
+  // Animate at a fixed total of ~15s regardless of trip length. Convert anim
+  // time -> trip time by ratio. requestAnimationFrame keeps things smooth.
   useEffect(() => {
-    if (!playing || durationMs <= 0) return undefined;
+    if (!playing || tripDurationMs <= 0) return undefined;
     let raf = 0;
     lastFrameRef.current = performance.now();
     const tick = (now) => {
       const dt = now - lastFrameRef.current;
       lastFrameRef.current = now;
-      setCurrentMs((cur) => {
-        const next = cur + dt * speed;
-        if (next >= durationMs) {
+      setAnimMs((cur) => {
+        const next = cur + dt;
+        if (next >= ANIMATION_DURATION_MS) {
           setPlaying(false);
-          return durationMs;
+          return ANIMATION_DURATION_MS;
         }
         return next;
       });
@@ -112,7 +112,10 @@ export default function ReplayPlayer({ tripId }) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, speed, durationMs]);
+  }, [playing, tripDurationMs]);
+
+  const tripT = (animMs / ANIMATION_DURATION_MS) * tripDurationMs;
+  const targetTimeMs = startMs + tripT;
 
   const trails = useMemo(() => {
     if (!data) return [];
@@ -125,10 +128,9 @@ export default function ReplayPlayer({ tripId }) {
 
   const participants = useMemo(() => {
     if (!data) return [];
-    const target = startMs + currentMs;
     return data.tracks
       .map((t) => {
-        const pos = interpolate(t.logs, target);
+        const pos = interpolate(t.logs, targetTimeMs);
         if (!pos) return null;
         return {
           id: t.participantId,
@@ -140,7 +142,7 @@ export default function ReplayPlayer({ tripId }) {
         };
       })
       .filter(Boolean);
-  }, [data, startMs, currentMs]);
+  }, [data, targetTimeMs]);
 
   if (error) {
     return (
@@ -164,29 +166,24 @@ export default function ReplayPlayer({ tripId }) {
     );
   }
 
-  const handleScrub = (e) => {
-    setCurrentMs(Number(e.target.value));
-    setPlaying(false);
-  };
-
   const handleTogglePlay = () => {
-    if (currentMs >= durationMs) setCurrentMs(0);
+    if (animMs >= ANIMATION_DURATION_MS) setAnimMs(0);
     setPlaying((p) => !p);
   };
 
   return (
     <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium text-slate-700">Route replay</p>
         <span className="text-xs text-slate-500">
-          {formatDuration(currentMs)} / {formatDuration(durationMs)}
+          {formatDuration(tripT)} / {formatDuration(tripDurationMs)}
         </span>
       </div>
 
       <div className="h-72 overflow-hidden rounded-lg border border-slate-200">
         <ConvoyMap
           destination={{ lat: data.trip.destination_lat, lng: data.trip.destination_lng }}
-          route={data.trip.route_data}
+          route={showMainRoute ? data.trip.route_data : null}
           participants={participants}
           participantTrails={trails}
         />
@@ -199,29 +196,34 @@ export default function ReplayPlayer({ tripId }) {
           aria-label={playing ? 'Pause replay' : 'Play replay'}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white shadow hover:bg-blue-700 active:scale-95"
         >
-          {playing ? '⏸' : '▶'}
+          {playing ? (
+            <FaPause className="h-3.5 w-3.5" aria-hidden />
+          ) : (
+            <FaPlay className="ml-0.5 h-3.5 w-3.5" aria-hidden />
+          )}
         </button>
-        <input
-          type="range"
-          min={0}
-          max={durationMs}
-          step={Math.max(durationMs / 1000, TICK_MS)}
-          value={currentMs}
-          onChange={handleScrub}
-          className="flex-1 cursor-pointer accent-blue-600"
-        />
-        <select
-          value={speed}
-          onChange={(e) => setSpeed(Number(e.target.value))}
-          className="shrink-0 rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm"
-          aria-label="Playback speed"
+        <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-blue-600 transition-[width] duration-75"
+            style={{ width: `${(animMs / ANIMATION_DURATION_MS) * 100}%` }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowMainRoute((v) => !v)}
+          aria-pressed={showMainRoute}
+          title={showMainRoute ? 'Hide main route' : 'Show main route'}
+          className={`flex h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition ${
+            showMainRoute
+              ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
+              : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200 hover:bg-slate-200'
+          }`}
         >
-          {SPEED_OPTIONS.map((s) => (
-            <option key={s} value={s}>
-              {s}×
-            </option>
-          ))}
-        </select>
+          <FaRoute className="h-3.5 w-3.5" aria-hidden />
+          <span className="hidden sm:inline">
+            {showMainRoute ? 'Main route on' : 'Main route off'}
+          </span>
+        </button>
       </div>
     </div>
   );

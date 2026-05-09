@@ -36,4 +36,4 @@ export const REACTIONS = [
 
 export const POSITION_UPDATE_INTERVAL_MS = 3000;
 export const POSITION_LOG_INTERVAL_MS = 5000;
-export const ARRIVAL_RADIUS_METERS = 50;
+export const ARRIVAL_RADIUS_METERS = 100;

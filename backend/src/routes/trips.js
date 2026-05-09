@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { body, param } from 'express-validator';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { optionalAuth } from '../middleware/auth.js';
+import { optionalAuth, requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import {
   createTrip,
+  deleteTrip,
   getTripByShareToken,
   setTripStatus,
 } from '../services/tripService.js';
@@ -69,6 +70,17 @@ router.patch(
   asyncHandler(async (req, res) => {
     const trip = await setTripStatus(req.params.id, req.body.status);
     res.json({ trip });
+  })
+);
+
+router.delete(
+  '/:id',
+  requireAuth,
+  param('id').isUUID(),
+  validate,
+  asyncHandler(async (req, res) => {
+    const result = await deleteTrip(req.params.id, req.user.id);
+    res.json(result);
   })
 );
 
