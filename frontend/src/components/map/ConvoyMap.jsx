@@ -87,6 +87,7 @@ export default function ConvoyMap({
   const altLayersRef = useRef([]);
   const trailLayersRef = useRef(new Map());
   const styleVersionRef = useRef(0);
+  const appliedStyleRef = useRef(useMapStore.getState().mapStyle);
   const mapInstance = useMapStore((s) => s.mapInstance);
   const setMapInstance = useMapStore((s) => s.setMapInstance);
   const mapStyle = useMapStore((s) => s.mapStyle);
@@ -134,22 +135,17 @@ export default function ConvoyMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setMapInstance]);
 
-  // Theme swap. setStyle with default diff:true preserves user-added sources
-  // and layers, but `style.load` still fires — bumping the epoch tells the
-  // route/alts/trails effects to re-apply their data in case the diff missed
-  // anything (line-gradient paint occasionally needs re-binding).
+  // Theme swap. We track which style we last *applied* in a ref so we never
+  // touch mapInstance.getStyle() — that throws "Style is not done loading"
+  // when the map is still booting. setStyle keeps user-added sources/layers
+  // via diff:true; bumping the epoch on style.load lets dependent effects
+  // re-apply their data in case the diff lost anything (rare, but safe).
   useEffect(() => {
     if (!mapInstance) return undefined;
-    const desired = MAP_STYLES[mapStyle] ?? MAP_STYLES.light;
-    const currentName =
-      mapInstance.getStyle()?.metadata?.['mapbox:origin'] ??
-      mapInstance.getStyle()?.name;
-    // Heuristic: if the active style's name already mentions the desired
-    // theme keyword, skip (avoids redundant network fetch on first mount).
-    const wantDark = mapStyle === 'dark';
-    const isDark = (currentName ?? '').toLowerCase().includes('dark');
-    if (wantDark === isDark) return undefined;
+    if (appliedStyleRef.current === mapStyle) return undefined;
+    appliedStyleRef.current = mapStyle;
 
+    const desired = MAP_STYLES[mapStyle] ?? MAP_STYLES.light;
     const onStyleLoad = () => {
       styleVersionRef.current += 1;
       setStyleEpoch(styleVersionRef.current);
